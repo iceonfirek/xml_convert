@@ -66,82 +66,107 @@ def validate_xml_structure(xml_content):
 
 def xml_to_csv(xml_path, csv_path):
     """
-    将XML文件转换为CSV格式
-    
-    Args:
-        xml_path: XML文件路径
-        csv_path: 输出CSV文件路径
-    Returns:
-        (bool, str): (是否成功, 消息)
+    将XML文件转换为CSV格式，合并相同设备的基本信息
     """
     try:
+        # 定义CSV表头
+        headers = [
+            '#', '名称', '设备类型', 'IP 地址', '子网掩码', 'MAC 地址', '角色', 
+            '供应商名称', '订单号', '固件版本', '硬件版本',
+            '#', '名称', 'IP 地址', '子网掩码', 'MAC 地址',
+            '#', '端口 ID', '端口说明', '伙伴端口 ID', '伙伴设备名称', '功率预算 [dB]',
+            '#', '模块名称', '供应商', '订货号', '序列号', '固件版本', '硬件版本', ''
+        ]
+        
         tree = ET.parse(xml_path)
         root = tree.getroot()
-        
-        # 定义完整的CSV文件头
-        headers = [
-            # 设备基本信息
-            'NameOfStation', 'IpAddress', 'DeviceType', 'MAC', 'ManufacturerID', 
-            'ManufacturerName', 'Role', 'RunState', 'DeviceID', 'GatewayIp', 'NetworkMask',
-            # ImRecord信息
-            'OrderID', 'SerialNumber', 'HardwareRevision', 'SoftwareRevision', 
-            'RevisionCounter', 'ProfileID', 'ProfileDetails', 'IMVersion', 'IMSupported',
-            # 模块信息
-            'Module_1_IdentNumber', 'Module_1_Name', 'Module_1_OrderNumber',
-            'Module_2_IdentNumber', 'Module_2_Name', 'Module_2_OrderNumber',
-            'Module_3_IdentNumber', 'Module_3_Name', 'Module_3_OrderNumber',
-            # 端口信息
-            'PortID', 'PortDesc', 'OperStatus', 'RemotePortID', 'RemoteNameOfStation',
-            'RemoteMAC', 'NetworkLoadIn', 'NetworkLoadOut', 'IsWireless', 'PowerBudget',
-            'RxPortErrorsFrames', 'RemChassisIdSubtype', 'SwitchGroup', 'CableDelay', 'MauType'
-        ]
         
         devices = root.find('DeviceCollection')
         if devices is None:
             return False, "找不到DeviceCollection元素"
             
         rows = []
+        device_count = 1
+        
+        # 用于存储已处理的设备信息
+        processed_devices = {}
+        
         for device in devices.findall('Device'):
-            row = {header: '' for header in headers}  # 初始化所有字段为空字符串
+            # 设备唯一标识
+            device_key = (
+                device.find('NameOfStation').text if device.find('NameOfStation') is not None else '',
+                device.find('IpAddress').text if device.find('IpAddress') is not None else '',
+                device.find('MAC').text if device.find('MAC') is not None else ''
+            )
             
-            # 提取设备基本信息
-            for field in ['NameOfStation', 'IpAddress', 'DeviceType', 'MAC', 
-                         'ManufacturerID', 'ManufacturerName', 'Role', 'RunState', 
-                         'DeviceID', 'GatewayIp', 'NetworkMask']:
-                elem = device.find(field)
-                if elem is not None:
-                    row[field] = elem.text or ''
+            # 获取基本设备信息
+            base_info = {
+                '#': str(device_count),
+                '名称': device_key[0],
+                '设备类型': device.find('DeviceType').text if device.find('DeviceType') is not None else '',
+                'IP 地址': device_key[1],
+                '子网掩码': device.find('NetworkMask').text if device.find('NetworkMask') is not None else '',
+                'MAC 地址': device_key[2],
+                '角色': device.find('Role').text if device.find('Role') is not None else '',
+                '供应商名称': device.find('ManufacturerName').text if device.find('ManufacturerName') is not None else '',
+                '订单号': device.find('.//OrderID').text if device.find('.//OrderID') is not None else '',
+                '固件版本': device.find('.//SoftwareRevision').text if device.find('.//SoftwareRevision') is not None else '',
+                '硬件版本': device.find('.//HardwareRevision').text if device.find('.//HardwareRevision') is not None else ''
+            }
             
-            # 提取ImRecord信息
-            im_record = device.find('ImRecord')
-            if im_record is not None:
-                for field in ['OrderID', 'SerialNumber', 'HardwareRevision', 
-                            'SoftwareRevision', 'RevisionCounter', 'ProfileID', 
-                            'ProfileDetails', 'IMVersion', 'IMSupported']:
-                    elem = im_record.find(field)
-                    if elem is not None:
-                        row[field] = elem.text or ''
+            # 复制设备基本信息到第二组
+            device_info_2 = {
+                '#': '1',
+                '名称': device_key[0],
+                'IP 地址': device_key[1],
+                '子网掩码': base_info['子网掩码'],
+                'MAC 地址': device_key[2]
+            }
             
-            # 提取端口信息
+            # 获取端口信息
             interface = device.find('.//PnInterface')
             if interface is not None:
                 port_list = interface.find('PortList')
                 if port_list is not None:
+                    port_count = 1
+                    first_row = True
                     for port in port_list.findall('Port'):
-                        port_row = row.copy()
-                        for field in ['PortID', 'PortDesc', 'OperStatus', 'RemotePortID',
-                                    'RemoteNameOfStation', 'RemoteMAC', 'NetworkLoadIn',
-                                    'NetworkLoadOut', 'IsWireless', 'PowerBudget',
-                                    'RxPortErrorsFrames', 'RemChassisIdSubtype',
-                                    'SwitchGroup', 'CableDelay', 'MauType']:
-                            elem = port.find(field)
-                            if elem is not None:
-                                port_row[field] = elem.text or ''
-                        rows.append(port_row)
-                else:
-                    rows.append(row)
-            else:
-                rows.append(row)
+                        row = {header: '' for header in headers}
+                        
+                        # 只在第一行显示设备基本信息
+                        if first_row and device_key not in processed_devices:
+                            row.update(base_info)
+                            row.update(device_info_2)
+                            processed_devices[device_key] = True
+                            first_row = False
+                        
+                        # 填充端口信息
+                        row['#'] = str(port_count)
+                        row['端口 ID'] = port.find('PortID').text if port.find('PortID') is not None else ''
+                        row['端口说明'] = port.find('PortDesc').text if port.find('PortDesc') is not None else ''
+                        row['伙伴端口 ID'] = port.find('RemotePortID').text if port.find('RemotePortID') is not None else ''
+                        row['伙伴设备名称'] = port.find('RemoteNameOfStation').text if port.find('RemoteNameOfStation') is not None else ''
+                        row['功率预算 [dB]'] = port.find('PowerBudget').text if port.find('PowerBudget') is not None else ''
+                        
+                        # 添加模块信息
+                        modules = device.findall('.//Module')
+                        if modules and port_count <= len(modules):
+                            module = modules[port_count - 1]
+                            row['#'] = str(port_count)
+                            row['模块名称'] = module.find('OrderID').text if module.find('OrderID') is not None else ''
+                            row['供应商'] = base_info['供应商名称']
+                            row['订货号'] = module.find('OrderID').text if module.find('OrderID') is not None else ''
+                            row['序列号'] = module.find('SerialNumber').text if module.find('SerialNumber') is not None else ''
+                            row['固件版本'] = module.find('SoftwareRevision').text if module.find('SoftwareRevision') is not None else ''
+                            row['硬件版本'] = module.find('HardwareRevision').text if module.find('HardwareRevision') is not None else ''
+                        
+                        rows.append(row)
+                        port_count += 1
+                    
+                    # 添加空行
+                    rows.append({header: '' for header in headers})
+                
+            device_count += 1
         
         # 写入CSV文件
         with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
