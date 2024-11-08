@@ -1,5 +1,4 @@
 import sys  # 添加此行以导入sys模块
-import pandas as pd
 import xml.etree.ElementTree as ET
 from openpyxl import Workbook
 import os
@@ -301,7 +300,7 @@ def main():
         # 记录已处理的文件
         processed_files.add(xlsx_file)
         
-        # 确保目标文件的目录存在
+        # 确保目标文件的���录存在
         os.makedirs(os.path.dirname(xlsx_file), exist_ok=True)
         
         print(f"\n[{i}/{total_files}] 处理文件:")

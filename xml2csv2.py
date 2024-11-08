@@ -5,7 +5,7 @@ import sys
 import os
 import re
 import csv
-from d_xml2csv import xml_to_csv
+import xml.etree.ElementTree as ET
 
 def clean_xml_content(xml_path):
     """
@@ -48,7 +48,6 @@ def validate_xml_structure(xml_content):
         (bool, str): (是否有效, 错误信息)
     """
     try:
-        from xml.etree import ElementTree as ET
         root = ET.fromstring(xml_content)
         
         devices = root.find('DeviceCollection')
@@ -64,6 +63,98 @@ def validate_xml_structure(xml_content):
         return False, f"XML格式错误: {str(e)}"
     except Exception as e:
         return False, f"验证XML结构失败: {str(e)}"
+
+def xml_to_csv(xml_path, csv_path):
+    """
+    将XML文件转换为CSV格式
+    
+    Args:
+        xml_path: XML文件路径
+        csv_path: 输出CSV文件路径
+    Returns:
+        (bool, str): (是否成功, 消息)
+    """
+    try:
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        
+        # 定义完整的CSV文件头
+        headers = [
+            # 设备基本信息
+            'NameOfStation', 'IpAddress', 'DeviceType', 'MAC', 'ManufacturerID', 
+            'ManufacturerName', 'Role', 'RunState', 'DeviceID', 'GatewayIp', 'NetworkMask',
+            # ImRecord信息
+            'OrderID', 'SerialNumber', 'HardwareRevision', 'SoftwareRevision', 
+            'RevisionCounter', 'ProfileID', 'ProfileDetails', 'IMVersion', 'IMSupported',
+            # 模块信息
+            'Module_1_IdentNumber', 'Module_1_Name', 'Module_1_OrderNumber',
+            'Module_2_IdentNumber', 'Module_2_Name', 'Module_2_OrderNumber',
+            'Module_3_IdentNumber', 'Module_3_Name', 'Module_3_OrderNumber',
+            # 端口信息
+            'PortID', 'PortDesc', 'OperStatus', 'RemotePortID', 'RemoteNameOfStation',
+            'RemoteMAC', 'NetworkLoadIn', 'NetworkLoadOut', 'IsWireless', 'PowerBudget',
+            'RxPortErrorsFrames', 'RemChassisIdSubtype', 'SwitchGroup', 'CableDelay', 'MauType'
+        ]
+        
+        devices = root.find('DeviceCollection')
+        if devices is None:
+            return False, "找不到DeviceCollection元素"
+            
+        rows = []
+        for device in devices.findall('Device'):
+            row = {header: '' for header in headers}  # 初始化所有字段为空字符串
+            
+            # 提取设备基本信息
+            for field in ['NameOfStation', 'IpAddress', 'DeviceType', 'MAC', 
+                         'ManufacturerID', 'ManufacturerName', 'Role', 'RunState', 
+                         'DeviceID', 'GatewayIp', 'NetworkMask']:
+                elem = device.find(field)
+                if elem is not None:
+                    row[field] = elem.text or ''
+            
+            # 提取ImRecord信息
+            im_record = device.find('ImRecord')
+            if im_record is not None:
+                for field in ['OrderID', 'SerialNumber', 'HardwareRevision', 
+                            'SoftwareRevision', 'RevisionCounter', 'ProfileID', 
+                            'ProfileDetails', 'IMVersion', 'IMSupported']:
+                    elem = im_record.find(field)
+                    if elem is not None:
+                        row[field] = elem.text or ''
+            
+            # 提取端口信息
+            interface = device.find('.//PnInterface')
+            if interface is not None:
+                port_list = interface.find('PortList')
+                if port_list is not None:
+                    for port in port_list.findall('Port'):
+                        port_row = row.copy()
+                        for field in ['PortID', 'PortDesc', 'OperStatus', 'RemotePortID',
+                                    'RemoteNameOfStation', 'RemoteMAC', 'NetworkLoadIn',
+                                    'NetworkLoadOut', 'IsWireless', 'PowerBudget',
+                                    'RxPortErrorsFrames', 'RemChassisIdSubtype',
+                                    'SwitchGroup', 'CableDelay', 'MauType']:
+                            elem = port.find(field)
+                            if elem is not None:
+                                port_row[field] = elem.text or ''
+                        rows.append(port_row)
+                else:
+                    rows.append(row)
+            else:
+                rows.append(row)
+        
+        # 写入CSV文件
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(rows)
+            
+        return True, f"成功转换 {len(rows)} 条记录"
+        
+    except ET.ParseError as e:
+        return False, f"XML解析错误: {str(e)}"
+    except Exception as e:
+        return False, f"转换失败: {str(e)}"
 
 def process_directory(input_dir, output_dir):
     """
@@ -182,7 +273,7 @@ def process_directory(input_dir, output_dir):
 
 def main():
     if len(sys.argv) != 3:
-        print("用法: python batch_xml2csv.py <输入目录> <输出目录>")
+        print("用法: python xml2csv.py <输入目录> <输出目录>")
         sys.exit(1)
     
     input_dir = sys.argv[1]
@@ -201,4 +292,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()
